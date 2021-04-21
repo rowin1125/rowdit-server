@@ -120,7 +120,6 @@ export class UserResolver {
       return null;
     }
 
-    console.log("req.session", req.session);
     const user = await em.findOne(User, { id: req.session.userId });
     return user;
   }
@@ -142,7 +141,6 @@ export class UserResolver {
     try {
       await em.persistAndFlush(user);
     } catch (error) {
-      console.log("error", error);
       // error.detail.includes("already exists")
       if (error.code === "23505") {
         return {
