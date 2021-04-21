@@ -1,7 +1,7 @@
 import "reflect-metadata";
 
 import cors from "cors";
-import redis from "redis";
+import Redis from "ioredis";
 import express from "express";
 import session from "express-session";
 import connectRedis from "connect-redis";
@@ -19,11 +19,13 @@ import { HalloResolver } from "./resolvers/hello";
 
 const main = async () => {
   const orm = await MikroORM.init(mikroConfig);
+  await orm.getMigrator().up();
+
   const app = express();
   const port = 7777;
 
   const RedisStore = connectRedis(session);
-  const redisClient = redis.createClient();
+  const redis = new Redis();
 
   app.use(
     cors({
@@ -35,7 +37,7 @@ const main = async () => {
     session({
       name: COOKIE_NAME,
       store: new RedisStore({
-        client: redisClient,
+        client: redis,
         // This will keep the value forever in redis, regular
         // behaviour is refresh on touch
         disableTouch: true,
@@ -57,7 +59,7 @@ const main = async () => {
       resolvers: [HalloResolver, PostResolver, UserResolver],
       validate: false,
     }),
-    context: ({ req, res }): MyContext => ({ em: orm.em, req, res }),
+    context: ({ req, res }): MyContext => ({ em: orm.em, req, res, redis }),
   });
 
   apolloServer.applyMiddleware({
@@ -65,7 +67,6 @@ const main = async () => {
     cors: false,
   });
 
-  orm.getMigrator().up();
   app.listen(port, () => console.log(`🚀 Server started on localhost:${port}`));
 };
 
