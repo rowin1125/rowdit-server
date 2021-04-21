@@ -5,21 +5,27 @@ import Redis from "ioredis";
 import express from "express";
 import session from "express-session";
 import connectRedis from "connect-redis";
-import { MikroORM } from "@mikro-orm/core";
 import { buildSchema } from "type-graphql";
 import { ApolloServer } from "apollo-server-express";
-
-import mikroConfig from "./mikro-orm.config";
+import { createConnection } from "typeorm";
 
 import { MyContext } from "./types";
 import { COOKIE_NAME, __prod__ } from "./constants";
 import { PostResolver } from "./resolvers/post";
 import { UserResolver } from "./resolvers/user";
 import { HalloResolver } from "./resolvers/hello";
+import { Post } from "./entities/Post";
+import { User } from "./entities/User";
 
 const main = async () => {
-  const orm = await MikroORM.init(mikroConfig);
-  await orm.getMigrator().up();
+  const conn = await createConnection({
+    type: "postgres",
+    database: "rowdit2",
+    username: "rowin",
+    logging: true,
+    synchronize: true,
+    entities: [Post, User],
+  });
 
   const app = express();
   const port = 7777;
@@ -59,7 +65,7 @@ const main = async () => {
       resolvers: [HalloResolver, PostResolver, UserResolver],
       validate: false,
     }),
-    context: ({ req, res }): MyContext => ({ em: orm.em, req, res, redis }),
+    context: ({ req, res }): MyContext => ({ req, res, redis }),
   });
 
   apolloServer.applyMiddleware({
