@@ -1,5 +1,6 @@
 import "reflect-metadata";
 
+import path from "path";
 import cors from "cors";
 import Redis from "ioredis";
 import express from "express";
@@ -25,7 +26,10 @@ const main = async () => {
     logging: true,
     synchronize: true,
     entities: [Post, User],
+    migrations: [path.join(__dirname, "./migrations/*")],
   });
+  await conn.runMigrations();
+  // await Post.delete({});
 
   const app = express();
   const port = 7777;
