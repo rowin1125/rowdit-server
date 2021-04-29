@@ -40,7 +40,7 @@ const main = async () => {
   const RedisStore = connectRedis(session);
   const redis = new Redis(process.env.REDIS_URL);
 
-  app.set("proxy", 1);
+  app.set("trust proxy", 1);
 
   app.use(
     cors({
@@ -62,6 +62,7 @@ const main = async () => {
         httpOnly: true,
         secure: __prod__, // Cookie only works in https
         sameSite: "lax", // Protecting CSRF
+        domain: __prod__ ? ".derow.nl" : undefined,
       },
       saveUninitialized: false,
       secret: process.env.SESSION_SECRET,
