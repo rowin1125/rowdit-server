@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import "dotenv-safe/config";
 
 import path from "path";
 import cors from "cors";
@@ -24,10 +25,9 @@ import { createUpdootLoader } from "./utils/createUpdootLoader";
 const main = async () => {
   const conn = await createConnection({
     type: "postgres",
-    database: "rowdit2",
-    username: "rowin",
+    url: process.env.DATABASE_URL,
     logging: true,
-    synchronize: true,
+    // synchronize: true,
     entities: [Post, User, Updoot],
     migrations: [path.join(__dirname, "./migrations/*")],
   });
@@ -35,14 +35,16 @@ const main = async () => {
   // await Post.delete({});
 
   const app = express();
-  const port = 7777;
+  const port = process.env.PORT;
 
   const RedisStore = connectRedis(session);
-  const redis = new Redis();
+  const redis = new Redis(process.env.REDIS_URL);
+
+  app.set("proxy", 1);
 
   app.use(
     cors({
-      origin: "http://localhost:3000",
+      origin: process.env.CORS_ORIGIN,
       credentials: true,
     })
   );
@@ -62,7 +64,7 @@ const main = async () => {
         sameSite: "lax", // Protecting CSRF
       },
       saveUninitialized: false,
-      secret: "banana",
+      secret: process.env.SESSION_SECRET,
       resave: false,
     })
   );
@@ -86,7 +88,9 @@ const main = async () => {
     cors: false,
   });
 
-  app.listen(port, () => console.log(`🚀 Server started on localhost:${port}`));
+  app.listen(+port, () =>
+    console.log(`🚀 Server started on localhost:${port}`)
+  );
 };
 
 main().catch((err) => console.error(err));
