@@ -17,6 +17,9 @@ import { UserResolver } from "./resolvers/user";
 import { HalloResolver } from "./resolvers/hello";
 import { Post } from "./entities/Post";
 import { User } from "./entities/User";
+import { Updoot } from "./entities/Updoot";
+import { createUserLoader } from "./utils/createUserLoader";
+import { createUpdootLoader } from "./utils/createUpdootLoader";
 
 const main = async () => {
   const conn = await createConnection({
@@ -25,7 +28,7 @@ const main = async () => {
     username: "rowin",
     logging: true,
     synchronize: true,
-    entities: [Post, User],
+    entities: [Post, User, Updoot],
     migrations: [path.join(__dirname, "./migrations/*")],
   });
   await conn.runMigrations();
@@ -69,7 +72,13 @@ const main = async () => {
       resolvers: [HalloResolver, PostResolver, UserResolver],
       validate: false,
     }),
-    context: ({ req, res }): MyContext => ({ req, res, redis }),
+    context: ({ req, res }): MyContext => ({
+      req,
+      res,
+      redis,
+      userLoader: createUserLoader(),
+      updootLoader: createUpdootLoader(),
+    }),
   });
 
   apolloServer.applyMiddleware({

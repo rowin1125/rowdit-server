@@ -13,9 +13,11 @@ import {
   Root,
   UseMiddleware,
 } from "type-graphql";
-import { MyContext } from "src/types";
+import { MyContext } from "../types";
 import { isAuth } from "../middleware/isAuth";
 import { getConnection } from "typeorm";
+import { Updoot } from "../entities/Updoot";
+import { User } from "../entities/User";
 
 @InputType()
 class PostInput {
@@ -37,8 +39,84 @@ class PaginatedPosts {
 @Resolver(Post)
 export class PostResolver {
   @FieldResolver(() => String)
-  textSnippet(@Root() root: Post) {
-    return `${root.text.slice(0, 50)}...`;
+  textSnippet(@Root() post: Post) {
+    return `${post.text.slice(0, 50)}...`;
+  }
+
+  @FieldResolver(() => User)
+  creator(@Root() post: Post, @Ctx() { userLoader }: MyContext) {
+    return userLoader.load(post.creatorId);
+  }
+
+  @FieldResolver(() => Int, { nullable: true })
+  async voteStatus(
+    @Root() post: Post,
+    @Ctx() { updootLoader, req }: MyContext
+  ) {
+    if (!req.session.userId) {
+      return null;
+    }
+
+    const updoot = await updootLoader.load({
+      postId: post.id,
+      userId: req.session.userId,
+    });
+
+    return updoot ? updoot.value : null;
+  }
+
+  @Mutation(() => Boolean)
+  @UseMiddleware(isAuth)
+  async vote(
+    @Arg("postId", () => Int) postId: number,
+    @Arg("value", () => Int) value: number,
+    @Ctx() { req }: MyContext
+  ) {
+    const isUpdoot = value !== -1;
+    const newValue = isUpdoot ? 1 : -1;
+    const { userId } = req.session;
+
+    const updoot = await Updoot.findOne({ where: { postId, userId } });
+
+    if (updoot && updoot.value !== newValue) {
+      await getConnection().transaction(async (tm) => {
+        await tm.query(
+          `
+          update updoot
+          set value = $1
+          where "postId" = $2 and "userId" = $3
+        `,
+          [newValue, postId, userId]
+        );
+        await tm.query(
+          `
+          update post
+          set points = points + $1
+          where id = $2
+        `,
+          [2 * newValue, postId]
+        );
+      });
+    } else if (!updoot) {
+      await getConnection().transaction(async (tm) => {
+        await tm.query(
+          `
+          insert into updoot ("userId", "postId", value)
+          values ($1, $2, $3);
+        `,
+          [userId, postId, newValue]
+        );
+        await tm.query(
+          `
+          update post
+          set points = points + $1
+          where id = $2
+        `,
+          [newValue, postId]
+        );
+      });
+    }
+    return true;
   }
 
   @Query(() => PaginatedPosts)
@@ -48,18 +126,37 @@ export class PostResolver {
   ): Promise<PaginatedPosts> {
     const realLimit = Math.min(50, limit);
     const limitForPagination = realLimit + 1;
-    const qb = getConnection()
-      .getRepository(Post)
-      .createQueryBuilder("p")
-      .take(limitForPagination)
-      .orderBy('"createdAt"', "DESC");
+
+    const replacements: any[] = [limitForPagination];
 
     if (cursor) {
-      qb.where('"createdAt" < :cursor', { cursor: new Date(+cursor) });
+      replacements.push(new Date(+cursor));
     }
 
-    const posts = await qb.getMany();
+    const posts = await getConnection().query(
+      `
+      select p.*
 
+      from post p
+      ${cursor ? `where p."createdAt" < $2` : ""}
+      order by p."createdAt" DESC
+      limit $1
+    `,
+      replacements
+    );
+
+    // const qb = getConnection()
+    //   .getRepository(Post)
+    //   .createQueryBuilder("p")
+    //   .innerJoinAndSelect("p.creator", "u", 'u.id = "creatorId"')
+    //   .take(limitForPagination)
+    //   .orderBy('p."createdAt"', "DESC");
+
+    // if (cursor) {
+    //   qb.where('p."createdAt" < :cursor', { cursor: new Date(+cursor) });
+    // }
+
+    // const posts = await qb.getMany();
     return {
       posts: posts.slice(0, realLimit),
       hasMore: posts.length > realLimit,
@@ -67,7 +164,7 @@ export class PostResolver {
   }
 
   @Query(() => Post, { nullable: true })
-  post(@Arg("id") id: number): Promise<Post | undefined> {
+  post(@Arg("id", () => Int) id: number): Promise<Post | undefined> {
     return Post.findOne(id);
   }
 
@@ -81,23 +178,34 @@ export class PostResolver {
   }
 
   @Mutation(() => Post, { nullable: true })
+  @UseMiddleware(isAuth)
   async updatePost(
-    @Arg("id") id: number,
-    @Arg("title", () => String, { nullable: true }) title: string
-  ): Promise<Post | undefined> {
-    const post = await Post.findOne(id);
-    if (!post) {
-      return undefined;
-    }
-    if (typeof title !== "undefined") {
-      Post.update({ id }, { title });
-    }
-    return post;
+    @Arg("id", () => Int) id: number,
+    @Arg("title") title: string,
+    @Arg("text") text: string,
+    @Ctx() { req }: MyContext
+  ): Promise<Post | null> {
+    const result = await getConnection()
+      .createQueryBuilder()
+      .update(Post)
+      .set({ title, text })
+      .where('id = :id and "creatorId" = :creatorId', {
+        id,
+        creatorId: req.session.userId,
+      })
+      .returning("*")
+      .execute();
+
+    return result.raw[0];
   }
 
   @Mutation(() => Boolean)
-  async deletePost(@Arg("id") id: number): Promise<Boolean> {
-    await Post.delete(id);
+  @UseMiddleware(isAuth)
+  async deletePost(
+    @Arg("id", () => Int) id: number,
+    @Ctx() { req }: MyContext
+  ): Promise<Boolean> {
+    await Post.delete({ id, creatorId: req.session.userId });
     return true;
   }
 }
